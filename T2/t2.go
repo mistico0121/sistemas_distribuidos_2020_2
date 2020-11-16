@@ -15,7 +15,6 @@ import (
     "strings"
     "strconv"
     "time"
-    "math/rand"
 
 )
 
@@ -112,16 +111,18 @@ func send_messages(id int, addr_id int, address string, instructions []string, c
                     // Dado que 1+ procesos estan intentando incrementar cuando hay un multicast, este pequeño delay
                     // permite que un proceso entre, incremente el contador, y cambie la variable antes de que otro proceso
                     // lo vea, entre al if, y tenga la oportunidad de cambiar el contador mas de 1 vez
-                    time.Sleep(time.Duration(rand.Intn(1000)) * time.Microsecond)
+                    time.Sleep(time.Duration(1000 * addr_id) * time.Microsecond)
                     if (addr_id==ss) {
+
+                        string_to_send := "MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
                         if (*synchro){
                             *synchro = false
 
-                            //fmt.Printf("Incrementando contador antes de mandar mensaje\n")
+                            fmt.Printf("Incrementando contador antes de mandar mensaje: %s \n", string_to_send)
                             *count += 1
                         }
                         //fmt.Printf("Procesando instruccion: %s\n", order)
-                        conn.Write([]byte("MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)))
+                        conn.Write([]byte(string_to_send))
                     }
 
                 }
@@ -149,7 +150,7 @@ func send_messages(id int, addr_id int, address string, instructions []string, c
     if (initializer){
         //EL PROCESO QUE TERMINA AL NODO DE TERMINO SE DEMORA UN POCO MÁS PARA ASEGURAR QUE PROCESO TERMINE AL RESTO
         if(id ==addr_id ){
-            time.Sleep(500 * time.Millisecond)
+            time.Sleep(2000 * time.Millisecond)
         }
         time.Sleep(500 * time.Millisecond)
         fmt.Printf("MANDANDO MENSAJE DE TERMINO A NODO %d\n", addr_id)
@@ -294,7 +295,11 @@ func main() {
                     fmt.Printf("RECIBIDO: %s\n",stringer)
                     if (i>clock){
                         clock = i
+                        fmt.Printf("INCREMENTANDO RELOJ A : %d\n",i)
+
                     }
+                    fmt.Println("INCREMENTANDO RELOJ")
+
                     clock++;
 
                     fmt.Println("AGREGANDO A LA LISTA DE MENSAJES \n")

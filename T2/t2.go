@@ -70,9 +70,9 @@ func send_ack_global(self_id int, addr_list []string, message_id string){
     }
 }
 
+func send_message_to_address(string_to_send string, address string){
 
-//REPRESENTA FUNCION QUE ENVIA MENSAJES A NODO[addr_id]
-func send_messages(id int, addr_id int, address string, instructions []string, count *int,synchro *bool, initializer bool){
+    fmt.Printf("Mandando mensaje: %s \n", string_to_send)
     addr, err := net.ResolveUDPAddr("udp4", address)
     if err != nil {
         log.Fatal(err)
@@ -85,81 +85,151 @@ func send_messages(id int, addr_id int, address string, instructions []string, c
     }
     defer conn.Close()
 
-    //MENSAJE DE INICIO
-    if (initializer){
-        time.Sleep(500 * time.Millisecond)
-        fmt.Printf("INICIALIZANDO NODO %d\n", addr_id)
-        conn.Write([]byte("VAMOS"))
-    }
-    
+    conn.Write([]byte(string_to_send))
+}
 
-    for message_id, order:= range instructions{
-        //fmt.Printf("Procesando instruccion: %s\n", order)
-        neworder := strings.Replace(order, "C", "", -1)
-        s := strings.Split(neworder, " ")
+func send_messages(id int, addr_list []string, instructions []string, queue *[]string, count *int, initializer bool){
 
-        i, _ := strconv.Atoi(string(s[0]))
+    //fmt.Println("LEN INSTRUCTIONS ES")
+    //fmt.Println(len(instructions))
 
-        //SI LA INSTRUCCION ES PARA EL NODO
-        if ((i == id) && (id != addr_id)){
-            if s[1] == "M"{
-                //CAMBIAR A TODOS LOS DESTINATARIOS
-                var slice []string = s[2:len(s)]
-                for _, receiver:= range slice{
+    //1 goroutine por instrucción
+    breaker:= false
+    for ; (!breaker) ; {
 
-                    ss,_ := strconv.Atoi(receiver)
-                    // Dado que 1+ procesos estan intentando incrementar cuando hay un multicast, este pequeño delay
-                    // permite que un proceso entre, incremente el contador, y cambie la variable antes de que otro proceso
-                    // lo vea, entre al if, y tenga la oportunidad de cambiar el contador mas de 1 vez
-                    time.Sleep(time.Duration(1000 * addr_id) * time.Microsecond)
-                    if (addr_id==ss) {
+        for message_id, order:= range instructions{
 
-                        string_to_send := "MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
-                        if (*synchro){
-                            *synchro = false
+            time.Sleep(time.Duration(100) * time.Millisecond)
 
-                            fmt.Printf("Incrementando contador antes de mandar mensaje: %s \n", string_to_send)
-                            *count += 1
-                        }
-                        //fmt.Printf("Procesando instruccion: %s\n", order)
-                        conn.Write([]byte(string_to_send))
-                    }
+            //fmt.Printf("message_id es %d \n", message_id)
 
+            //Pre-procesado string de instrucciones
+            neworder := strings.Replace(order, "C", "", -1)
+            s := strings.Split(neworder, " ")
+            i, _ := strconv.Atoi(string(s[0]))
+
+            //SI LA INSTRUCCION ES PARA EL NODO
+            if (i == id){
+                if s[1] == "M"{
+
+                    fmt.Printf("Incrementando contador antes de mandar mensaje: \n")
+                    *count += 1
+                    string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
+                    string2_to_send := "SENDMSJ " + strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
+                    *queue = append(*queue, string2_to_send)
+
+                    //CAMBIAR A TODOS LOS DESTINATARIOS
+                    var slice []string = s[2:len(s)]
+                    for _, slicito:= range slice{
+                        i, _ := strconv.Atoi(string(slicito))
+
+                        go send_message_to_address(string1_to_send, addr_list[i])
+                        //LO PONGO AL INICIO DE LA QUEUE
+                        
+                    } 
+                } else if (s[1] == "A"){
+                    i2, _ := strconv.Atoi(string(s[2]))
+                    *count += i2
+                    //fmt.Printf("Procesando instruccion:%s\n", order) 
+                    fmt.Printf("Self counter += :%d\n", i2) 
                 }
 
                 
+
             }
-        } else if ((i == id) && (id == addr_id)){
-            if (s[1]== "A"){
-                i2, _ := strconv.Atoi(string(s[2]))
-                *count += i2
-                //fmt.Printf("Procesando instruccion:%s\n", order) 
-                fmt.Printf("Self counter += :%d\n", i2) 
+
+            if (message_id == len(instructions)-1){
+                fmt.Println("LEYENDO FINAL")
+                breaker = true
+                break
+            }else {
+                continue
             }
         }
-        
-
-        //Este tiempo representa la diferencia entre cada mensaje que se manda
-        time.Sleep(1 * time.Millisecond)
-
-        //puede volver a incrementar el contador usado en multicasts por cada proceso
-        *synchro = true
     }
-
     //MENSAJE DE FIN
     if (initializer){
         //EL PROCESO QUE TERMINA AL NODO DE TERMINO SE DEMORA UN POCO MÁS PARA ASEGURAR QUE PROCESO TERMINE AL RESTO
-        if(id ==addr_id ){
-            time.Sleep(2000 * time.Millisecond)
+        
+        time.Sleep(20000 * time.Millisecond)
+        
+        fmt.Println("MANDANDO MENSAJE DE TERMINO A NODOS \n")
+        for _, indexito:= range addr_list{
+            go send_message_to_address( "FINISH", indexito)
         }
-        time.Sleep(500 * time.Millisecond)
-        fmt.Printf("MANDANDO MENSAJE DE TERMINO A NODO %d\n", addr_id)
-        conn.Write([]byte("FINISH"))
+
+    }
+}
+
+func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *[]string, clock *int){
+    for{
+        time.Sleep(time.Duration(100) * time.Millisecond)       
+
+        //fmt.Println(*queue)
+        if len(*queue) != 0{
+            time.Sleep(time.Duration(100) * time.Millisecond)
+
+            //fmt.Println("Queue status: \n")
+            //fmt.Println(*queue)
+
+            x, _ := pop(*queue)
+
+            //S[1] = id, S[2:] = splice de IDs
+            s := strings.Split(x, " ")
+
+            if s[0] == "SENDMSJ"{
+
+                //SI LLEGA ACÁ SOLO ESPERA A QUE LOS ACKS LLEGUEN
+
+                sum := 0
+
+                for ; (sum<len(s)-2); {
+
+                    for _, value := range *ack_list{
+                        ack := strings.Split(value, " ")
+
+                        if ack[1] == s[1]{
+                            sum += 1
+                        }
+                    }
+
+                    if (sum == len(s)-2){
+                        break
+                    }
+                    sum = 0
+                }
+
+                fmt.Println("Han llegado todos los acks correspondientes a proceso \n")
+
+                
+
+            } else if s[0] == "RECVMSJ"{
+
+                i, _ := strconv.Atoi(s[2])
+
+                if (i>*clock){
+                    *clock = i
+                    fmt.Printf("INCREMENTANDO RELOJ A : %d\n",i)
+
+                }
+                fmt.Println("INCREMENTANDO RELOJ")
+
+                *clock++;
+
+                send_ack_global(self_id, *addr_list, s[1])
+
+
+            }
+
+            fmt.Printf("Popeando %s \n", (*queue)[0])
+            //fmt.Println(queue)
+            _, queue2 := pop(*queue)
+            *queue = queue2
+
+        }
     }
 
 }
-
-
 
 // BASADO EN AYUDANTÍA Y: 
 // https://ops.tips/blog/udp-client-and-server-in-go/
@@ -187,10 +257,7 @@ func main() {
     started = false
     var finished bool
 
-    // Indica si el contador puede incrementar, ya que solo debe incrementar 1 vez por multicast, pero cada multicast
-    // Lo ven hasta N-1 procesos
-    var synchro bool
-    synchro = true
+    var queue []string
 
     var message_list []string
     var ack_list []string
@@ -222,10 +289,6 @@ func main() {
     
     for index_process, line:= range addresses{
   
-		//fmt.Println("Set Address: %s \n", line)
-		//newline = "127.0.0.1:3000"
-		    
-
 		addr, err := net.ResolveUDPAddr("udp4", line)
 		if err != nil {
 			//fmt.Printf("ERROR: %s\n", err)
@@ -236,14 +299,13 @@ func main() {
         fmt.Printf("Set Address: %s \n", line)
 
         if ((N-1)==self_id && !started){ //SI ES EL ULTIMO NODO DE LA LISTA, ES EL INICIALIZADOR Y LE MANDA A TODOS INIT
-            started = true
-            for index2, addr := range addresses {
-                if (index2!= self_id){
-                    go send_messages(self_id, index2, addr, instructions, &clock, &synchro, true)
-
-                }
+            for _, addr := range addresses {
+                started = true
+                go send_message_to_address("VAMOS", addr)
+                
             }
-            go send_messages(self_id, self_id, addresses[self_id], instructions, &clock, &synchro, true)
+            go send_messages(self_id, addresses, instructions, &queue, &clock, true)
+
 
         }
 	    // Open up a connection
@@ -254,6 +316,8 @@ func main() {
 			continue
 		}
 		defer conn.Close()
+
+        go queue_manager(self_id, &addresses, &queue, &ack_list, &clock)
 
 		fmt.Println("Listening")
 		for {
@@ -267,18 +331,14 @@ func main() {
             string111 = hex.EncodeToString(buffer[:numBytes])
             bs, _ := hex.DecodeString(string111)
             stringer := string(bs)
+
             if (stringer=="VAMOS" && !started){
                 //CUANDO LLEGA MENSAJE QUE ULTIMO RECEPTOR SE ENCUENTRA LISTO, SE INICIALIZAN SENDERS PARA TODOS LOS OTROS NODOS
                 started = true
-                for index, addr := range addresses {
-                    if (index!= self_id){
-                        go send_messages(self_id, index, addr, instructions, &clock , &synchro, false)
-                    }
-                }
-                go send_messages(self_id, self_id, addresses[self_id], instructions, &clock, &synchro, false)
-
+                go send_messages(self_id, addresses, instructions, &queue, &clock, false)
 
             } else{
+
                 s := strings.Split(stringer, " ")
 
                 if stringer=="FINISH"{
@@ -286,28 +346,14 @@ func main() {
                     break
                 } else if s[0]== "ACK"{
 
-                    ack_list = append(ack_list, stringer)
-                    
-                    combined_list = append(combined_list, stringer)
+                    ack_list = append(ack_list, stringer)                    
 
                 } else if s[0]== "MSJ"{
-                    i, _ := strconv.Atoi(s[2])
-                    fmt.Printf("RECIBIDO: %s\n",stringer)
-                    if (i>clock){
-                        clock = i
-                        fmt.Printf("INCREMENTANDO RELOJ A : %d\n",i)
 
-                    }
-                    fmt.Println("INCREMENTANDO RELOJ")
-
-                    clock++;
-
-                    fmt.Println("AGREGANDO A LA LISTA DE MENSAJES \n")
-                    message_list = append(message_list, stringer)
+                    stringer = "RECV"+stringer
+                    queue = append(queue, stringer)
                     combined_list = append(combined_list, stringer)
 
-
-                    send_ack_global(self_id, addresses, s[1])
 
                 } 
 
@@ -319,7 +365,9 @@ func main() {
         }
 
 	}
-    
+    fmt.Printf("\n")
+
+
     fmt.Printf("PROCESO %d TERMINADO\n", self_id)
 
 	fmt.Printf("RELOJ LOGICO: %d \n", clock)
@@ -327,11 +375,10 @@ func main() {
     fmt.Printf("LISTA DE MENSAJES: \n")
     fmt.Println(message_list)
 
-    fmt.Printf("LISTA DE ACKS: \n")
-    fmt.Println(ack_list)
-
     fmt.Printf("LISTA COMBINADA: \n")
     fmt.Println(combined_list)
     
+    fmt.Printf("QUEUE ESTADO FINAL: \n")
+    fmt.Println(queue)
 	
 }

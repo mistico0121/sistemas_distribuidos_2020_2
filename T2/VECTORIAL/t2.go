@@ -74,7 +74,7 @@ func send_ack_global(self_id int, addr_list []string, message_id string){
 
 func send_message_to_address(string_to_send string, address string){
 
-    fmt.Printf("Mandando mensaje: %s \n", string_to_send)
+    //fmt.Printf("Mandando mensaje: %s \n", string_to_send)
     addr, err := net.ResolveUDPAddr("udp4", address)
     if err != nil {
         log.Fatal(err)
@@ -110,6 +110,9 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
                 //SOLO TOMAMOS EN CUENTA "M", YA QUE "A" NO VALE PARA RELOJES VECTORIALES
                 if s[1] == "M"{
 
+                    old_count := *count
+                    string_old_count := fmt.Sprintf("Reloj vectorial viejo: %d", old_count)
+
                     (*count)[id] += 1
                     vector_as_string := []string{}
 
@@ -124,15 +127,22 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
 
 
                     string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + result
-                    fmt.Printf("Incrementando contador antes de mandar mensaje: %s \n", string1_to_send)
+                    fmt.Println("Procediendo a mandar mensaje")
+                    fmt.Println(string_old_count)
+                    fmt.Printf("Reloj vectorial nuevo: %d\n", (*count))
+
+                    *action_list = append(*action_list, string1_to_send)
 
                     //ENVIAR A TODOS LOS DESTINATARIOS
                     var slice []string = s[2:len(s)]
                     for _, slicito:= range slice{
                         i, _ := strconv.Atoi(string(slicito))
+                        fmt.Printf("Mandando mensaje: %s a proceso ID: %d \n", string1_to_send, i)
+
                         go send_message_to_address(string1_to_send, addr_list[i])
                         
-                    } 
+                    }
+                    fmt.Println("\n") 
                 } 
             }
          
@@ -196,17 +206,19 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
                     //SI SOLO HAY 1 NUMERO EN EL VECTOR QUE LLEGO QUE TENGA UN CAMBIO QUE ESTE NO TIENE
                     if difference_counter == 1{
                         i, _ := strconv.Atoi(string(slicito[difference_index]))
+
+                        fmt.Printf("INCREMENTANDO RELOJ SEGUN MENSAJE ID %s\n", s[1])
+                        fmt.Printf("VIEJO RELOJ: %d\n", *clock)
                         
                         (*clock)[difference_index] = i
 
-                        fmt.Println("INCREMENTANDO RELOJ SEGUN MENSAJE RECIBIDO")
+                        fmt.Printf("NUEVO RELOJ: %d\n", *clock)
 
-
-                        send_ack_global(self_id, *addr_list, s[1])
                         fmt.Printf("Popeando %s \n", (*queue)[0])
                         //fmt.Println(queue)
                         _, queue2 := pop(*queue)
                         *queue = queue2
+                        fmt.Println("\n")
 
                     }
 
@@ -362,7 +374,6 @@ func main() {
 
     fmt.Printf("QUEUE FINAL: \n")
     output_queue := "'"+strings.Join(queue, `','`) + `'`
-
     fmt.Println(output_queue)
 
     fmt.Printf("LISTA MENSAJES ENVIADOS Y RECIBIDOS: \n")

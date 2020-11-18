@@ -74,7 +74,7 @@ func send_ack_global(self_id int, addr_list []string, message_id string){
 
 func send_message_to_address(string_to_send string, address string){
 
-    fmt.Printf("Mandando mensaje: %s \n", string_to_send)
+    //fmt.Printf("Mandando mensaje: %s \n", string_to_send)
     addr, err := net.ResolveUDPAddr("udp4", address)
     if err != nil {
         log.Fatal(err)
@@ -120,6 +120,7 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
                     var slice []string = s[2:len(s)]
                     for _, slicito:= range slice{
                         i, _ := strconv.Atoi(string(slicito))
+                        fmt.Printf("Procediendo a enviar mensaje ID: %d a destinatario con ID: %s\n", message_id, slicito)
 
                         go send_message_to_address(string1_to_send, addr_list[i])
                         //LO PONGO AL INICIO DE LA QUEUE
@@ -132,8 +133,6 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
                     *queue = append(*queue, string1_to_send)
                     *action_list = append(*action_list, string1_to_send)
                 }
-
-                
 
             }
 
@@ -180,6 +179,8 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
 
                 sum := 0
 
+                fmt.Printf("Esperando ACKs del mensaje enviado con id: %s\n", s[1])
+
                 for ; (sum<len(s)-2); {
 
                     for _, value := range *ack_list{
@@ -201,6 +202,7 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
                 //fmt.Println(queue)
                 _, queue2 := pop(*queue)
                 *queue = queue2
+                fmt.Println("\n")
 
                 
 
@@ -208,14 +210,20 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
 
                 i, _ := strconv.Atoi(s[2])
 
+                fmt.Printf("RECIBIDO MENSAJE %s \n", x)
+
                 if (i>*clock){
+                    fmt.Printf("RELOJ DE MENSAJE %s ES MAYOR QUE RELOJ ACTUAL %d \n", s[1], *clock)
+
                     *clock = i
                     fmt.Printf("INCREMENTANDO RELOJ A : %d\n",i)
 
                 }
-                fmt.Println("INCREMENTANDO RELOJ")
+                fmt.Printf("INCREMENTANDO RELOJ PUES SE RECIBIÓ MENSAJE ID: %s \n", s[1])
 
                 *clock++;
+
+                fmt.Printf("NUEVO RELOJ: %d \n", *clock)
 
                 send_ack_global(self_id, *addr_list, s[1])
                 fmt.Printf("Popeando %s \n", (*queue)[0])
@@ -223,22 +231,25 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
                 _, queue2 := pop(*queue)
                 *queue = queue2
 
+                fmt.Println("\n")
+
+
             } else if s[0] == "INCREASE"{
 
                 i2, _ := strconv.Atoi(string(s[1]))
-                fmt.Printf("Self counter += :%d\n", i2) 
+                fmt.Printf("INCREMENTANDO CONTADOR EN %d \n", i2) 
+                fmt.Printf("VALOR PREVIO: %d \n", *clock) 
                 *clock += i2
+                fmt.Printf("NUEVO VALOR: %d \n", *clock) 
 
                 _, queue2 := pop(*queue)
                 *queue = queue2
 
+                fmt.Println("\n")
+
             }
-
-            
-
         }
     }
-
 }
 
 // BASADO EN AYUDANTÍA Y: 

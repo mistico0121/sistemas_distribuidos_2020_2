@@ -66,6 +66,7 @@ func send_ack(self_id int, message_id string, address string) {
 func send_ack_global(self_id int, addr_list []string, message_id string){
 
     for _, addr := range addr_list {
+        time.Sleep(time.Duration(1) * time.Millisecond)
         go send_ack(self_id, message_id, addr)
     }
 }
@@ -88,10 +89,7 @@ func send_message_to_address(string_to_send string, address string){
     conn.Write([]byte(string_to_send))
 }
 
-func send_messages(id int, addr_list []string, instructions []string, queue *[]string, count *int, initializer bool){
-
-    //fmt.Println("LEN INSTRUCTIONS ES")
-    //fmt.Println(len(instructions))
+func send_messages(id int, addr_list []string, instructions []string, queue *[]string, action_list *[]string ,count *int, initializer bool){
 
     //1 goroutine por instrucción
     breaker:= false
@@ -100,8 +98,6 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
         for message_id, order:= range instructions{
 
             time.Sleep(time.Duration(100) * time.Millisecond)
-
-            //fmt.Printf("message_id es %d \n", message_id)
 
             //Pre-procesado string de instrucciones
             neworder := strings.Replace(order, "C", "", -1)
@@ -112,11 +108,12 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
             if (i == id){
                 if s[1] == "M"{
 
-                    fmt.Printf("Incrementando contador antes de mandar mensaje: \n")
                     *count += 1
                     string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
+                    fmt.Printf("Incrementando contador antes de mandar mensaje: %s \n", string1_to_send)
                     string2_to_send := "SENDMSJ " + strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
                     *queue = append(*queue, string2_to_send)
+                    *action_list = append(*action_list, string2_to_send)
 
                     //CAMBIAR A TODOS LOS DESTINATARIOS
                     var slice []string = s[2:len(s)]
@@ -128,10 +125,11 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
                         
                     } 
                 } else if (s[1] == "A"){
-                    i2, _ := strconv.Atoi(string(s[2]))
-                    *count += i2
-                    //fmt.Printf("Procesando instruccion:%s\n", order) 
-                    fmt.Printf("Self counter += :%d\n", i2) 
+
+                    string1_to_send := "INCREASE " + string(s[2])
+
+                    *queue = append(*queue, string1_to_send)
+                    *action_list = append(*action_list, string1_to_send)
                 }
 
                 
@@ -139,7 +137,7 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
             }
 
             if (message_id == len(instructions)-1){
-                fmt.Println("LEYENDO FINAL")
+                //fmt.Println("LEYENDO FINAL")
                 breaker = true
                 break
             }else {
@@ -151,11 +149,13 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
     if (initializer){
         //EL PROCESO QUE TERMINA AL NODO DE TERMINO SE DEMORA UN POCO MÁS PARA ASEGURAR QUE PROCESO TERMINE AL RESTO
         
-        time.Sleep(20000 * time.Millisecond)
+        //10 segundos de buffer para terminar
+        time.Sleep(10000 * time.Millisecond)
         
-        fmt.Println("MANDANDO MENSAJE DE TERMINO A NODOS \n")
+        fmt.Println("MANDANDO MENSAJE DE TERMINO A NODOS")
         for _, indexito:= range addr_list{
-            go send_message_to_address( "FINISH", indexito)
+            time.Sleep(time.Duration(10) * time.Millisecond)
+            go send_message_to_address("FINISH", indexito)
         }
 
     }
@@ -163,14 +163,10 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
 
 func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *[]string, clock *int){
     for{
-        time.Sleep(time.Duration(100) * time.Millisecond)       
+        //time.Sleep(time.Duration(100) * time.Millisecond)       
 
-        //fmt.Println(*queue)
         if len(*queue) != 0{
-            time.Sleep(time.Duration(100) * time.Millisecond)
-
-            //fmt.Println("Queue status: \n")
-            //fmt.Println(*queue)
+            time.Sleep(time.Duration(50) * time.Millisecond)
 
             x, _ := pop(*queue)
 
@@ -199,7 +195,11 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
                     sum = 0
                 }
 
-                fmt.Println("Han llegado todos los acks correspondientes a proceso \n")
+                fmt.Printf("Han llegado todos los acks correspondientes a proceso %s \n", s[1])
+                fmt.Printf("Popeando %s\n", (*queue)[0])
+                //fmt.Println(queue)
+                _, queue2 := pop(*queue)
+                *queue = queue2
 
                 
 
@@ -217,14 +217,23 @@ func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *
                 *clock++;
 
                 send_ack_global(self_id, *addr_list, s[1])
+                fmt.Printf("Popeando %s \n", (*queue)[0])
+                //fmt.Println(queue)
+                _, queue2 := pop(*queue)
+                *queue = queue2
 
+            } else if s[0] == "INCREASE"{
+
+                i2, _ := strconv.Atoi(string(s[1]))
+                fmt.Printf("Self counter += :%d\n", i2) 
+                *clock += i2
+
+                _, queue2 := pop(*queue)
+                *queue = queue2
 
             }
 
-            fmt.Printf("Popeando %s \n", (*queue)[0])
-            //fmt.Println(queue)
-            _, queue2 := pop(*queue)
-            *queue = queue2
+            
 
         }
     }
@@ -258,10 +267,7 @@ func main() {
     var finished bool
 
     var queue []string
-
-    var message_list []string
     var ack_list []string
-
     var combined_list []string
 
     addresses, err := readLines(filename1)
@@ -285,7 +291,6 @@ func main() {
 
     //NUMERO DE PUERTOS
     N := len(addresses)
-    fmt.Printf("NUMERO DE LINEAS:%d\n", N)
     
     for index_process, line:= range addresses{
   
@@ -304,7 +309,7 @@ func main() {
                 go send_message_to_address("VAMOS", addr)
                 
             }
-            go send_messages(self_id, addresses, instructions, &queue, &clock, true)
+            go send_messages(self_id, addresses, instructions, &queue, &combined_list, &clock, true)
 
 
         }
@@ -319,7 +324,7 @@ func main() {
 
         go queue_manager(self_id, &addresses, &queue, &ack_list, &clock)
 
-		fmt.Println("Listening")
+		fmt.Println("Listening\n")
 		for {
 			buffer := make([]byte, maxDatagramSize)
 			numBytes, _, err := conn.ReadFromUDP(buffer)
@@ -335,7 +340,7 @@ func main() {
             if (stringer=="VAMOS" && !started){
                 //CUANDO LLEGA MENSAJE QUE ULTIMO RECEPTOR SE ENCUENTRA LISTO, SE INICIALIZAN SENDERS PARA TODOS LOS OTROS NODOS
                 started = true
-                go send_messages(self_id, addresses, instructions, &queue, &clock, false)
+                go send_messages(self_id, addresses, instructions, &queue, &combined_list, &clock, false)
 
             } else{
 
@@ -372,13 +377,17 @@ func main() {
 
 	fmt.Printf("RELOJ LOGICO: %d \n", clock)
 
-    fmt.Printf("LISTA DE MENSAJES: \n")
-    fmt.Println(message_list)
+    fmt.Printf("QUEUE FINAL: \n")
+    output_queue := "'"+strings.Join(queue, `','`) + `'`
 
-    fmt.Printf("LISTA COMBINADA: \n")
-    fmt.Println(combined_list)
+    fmt.Println(output_queue)
+
+    fmt.Printf("LISTA MENSAJES ENVIADOS Y RECIBIDOS: \n")
+
+    // prepend single quote, perform joins, append single quote
+    output_combined := "'"+strings.Join(combined_list, `','`) + `'`
+    fmt.Println(output_combined)
     
-    fmt.Printf("QUEUE ESTADO FINAL: \n")
-    fmt.Println(queue)
+
 	
 }

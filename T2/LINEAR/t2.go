@@ -373,9 +373,7 @@ func main() {
                     queue = append(queue, stringer)
                     combined_list = append(combined_list, stringer)
 
-
                 } 
-
             }
 		}
 

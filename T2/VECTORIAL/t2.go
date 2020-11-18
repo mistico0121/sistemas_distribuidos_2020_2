@@ -127,11 +127,13 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
 
 
                     string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + result
+                    string2_to_send := "SENDMSJ " +strconv.Itoa(message_id) + " " + result
+
                     fmt.Println("Procediendo a mandar mensaje")
                     fmt.Println(string_old_count)
                     fmt.Printf("Reloj vectorial nuevo: %d\n", (*count))
 
-                    *action_list = append(*action_list, string1_to_send)
+                    *action_list = append(*action_list, string2_to_send)
 
                     //ENVIAR A TODOS LOS DESTINATARIOS
                     var slice []string = s[2:len(s)]

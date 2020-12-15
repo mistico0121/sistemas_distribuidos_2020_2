@@ -1,4 +1,4 @@
-0 C1 90864
-3 V1 90864
-2 T1 90864
-1 C2 90864
+Linea: 0    Cliente: C1    k':4028373
+Linea: 1    Cliente: T1    k':4836549
+Linea: 3    Cliente: T0    k':2548241
+Linea: 2    Cliente: C0    k':7322412

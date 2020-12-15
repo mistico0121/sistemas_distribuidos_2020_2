@@ -15,7 +15,7 @@ def generate_proof_of_work(last_k, last_hash, end_hash):
 def proof_of_work_with_client(index, client, last_k, last_hash, end_hash):
 	f = open("output.txt", "a")
 	result = generate_proof_of_work(last_k, last_hash, end_hash)
-	string_to_write = f"{index} {client} {result}\n"
+	string_to_write = f"Linea: {index}    Cliente: {client}    k':{result}\n"
 	f.write(string_to_write)
 	f.close()
 

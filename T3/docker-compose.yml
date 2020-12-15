@@ -1,0 +1,12 @@
+version: "3.7"
+services:
+  redis:
+    image: redis:6.0.7-alpine
+    command: redis-server
+    volumes:
+      - redis:/data
+    ports:
+      - "6379:6379"
+volumes:
+  redis:
+    driver: local

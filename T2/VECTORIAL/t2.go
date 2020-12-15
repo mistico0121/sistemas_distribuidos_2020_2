@@ -74,7 +74,7 @@ func send_ack_global(self_id int, addr_list []string, message_id string){
 
 func send_message_to_address(string_to_send string, address string){
 
-    //fmt.Printf("Mandando mensaje: %s \n", string_to_send)
+    fmt.Printf("Mandando mensaje: %s \n", string_to_send)
     addr, err := net.ResolveUDPAddr("udp4", address)
     if err != nil {
         log.Fatal(err)
@@ -90,7 +90,7 @@ func send_message_to_address(string_to_send string, address string){
     conn.Write([]byte(string_to_send))
 }
 
-func send_messages(id int, addr_list []string, instructions []string, queue *[]string, action_list *[]string ,count *[]int, initializer bool){
+func send_messages(id int, addr_list []string, instructions []string, queue *[]string, action_list *[]string ,count *int, initializer bool){
 
     //1 goroutine por instrucción
     breaker:= false
@@ -107,47 +107,35 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
 
             //SI LA INSTRUCCION ES PARA EL NODO
             if (i == id){
-                //SOLO TOMAMOS EN CUENTA "M", YA QUE "A" NO VALE PARA RELOJES VECTORIALES
                 if s[1] == "M"{
 
-                    old_count := *count
-                    string_old_count := fmt.Sprintf("Reloj vectorial viejo: %d", old_count)
-
-                    (*count)[id] += 1
-                    vector_as_string := []string{}
-
-                    for i := range (*count) {
-                        number := (*count)[i]
-                        text := strconv.Itoa(number)
-                        vector_as_string = append(vector_as_string, text)
-                    }
-
-                    // Join our string slice.
-                    result := strings.Join(vector_as_string, " ")
-
-
-                    string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + result
-                    string2_to_send := "SENDMSJ " +strconv.Itoa(message_id) + " " + result
-
-                    fmt.Println("Procediendo a mandar mensaje")
-                    fmt.Println(string_old_count)
-                    fmt.Printf("Reloj vectorial nuevo: %d\n", (*count))
-
+                    *count += 1
+                    string1_to_send := "MSJ " +strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
+                    fmt.Printf("Incrementando contador antes de mandar mensaje: %s \n", string1_to_send)
+                    string2_to_send := "SENDMSJ " + strconv.Itoa(message_id) + " " + strconv.Itoa(*count)
+                    *queue = append(*queue, string2_to_send)
                     *action_list = append(*action_list, string2_to_send)
 
-                    //ENVIAR A TODOS LOS DESTINATARIOS
+                    //CAMBIAR A TODOS LOS DESTINATARIOS
                     var slice []string = s[2:len(s)]
                     for _, slicito:= range slice{
                         i, _ := strconv.Atoi(string(slicito))
-                        fmt.Printf("Mandando mensaje: %s a proceso ID: %d \n", string1_to_send, i)
 
                         go send_message_to_address(string1_to_send, addr_list[i])
+                        //LO PONGO AL INICIO DE LA QUEUE
                         
-                    }
-                    fmt.Println("\n") 
-                } 
+                    } 
+                } else if (s[1] == "A"){
+
+                    string1_to_send := "INCREASE " + string(s[2])
+
+                    *queue = append(*queue, string1_to_send)
+                    *action_list = append(*action_list, string1_to_send)
+                }
+
+                
+
             }
-         
 
             if (message_id == len(instructions)-1){
                 //fmt.Println("LEYENDO FINAL")
@@ -157,11 +145,11 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
                 continue
             }
         }
-        
     }
     //MENSAJE DE FIN
     if (initializer){
         //EL PROCESO QUE TERMINA AL NODO DE TERMINO SE DEMORA UN POCO MÁS PARA ASEGURAR QUE PROCESO TERMINE AL RESTO
+        
         //10 segundos de buffer para terminar
         time.Sleep(millisecondExecution * time.Millisecond)
         
@@ -174,61 +162,80 @@ func send_messages(id int, addr_list []string, instructions []string, queue *[]s
     }
 }
 
-func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *[]string, clock *[]int){
+func queue_manager(self_id int, addr_list *[]string, queue *[]string, ack_list *[]string, clock *int){
     for{
         //time.Sleep(time.Duration(100) * time.Millisecond)       
 
         if len(*queue) != 0{
             time.Sleep(time.Duration(50) * time.Millisecond)
 
-            //checkeo toda la queue
-            for _, x := range (*queue){
+            x, _ := pop(*queue)
 
-                //S[1] = id, S[2:] = splice de IDs
-                s := strings.Split(x, " ")
+            //S[1] = id, S[2:] = splice de IDs
+            s := strings.Split(x, " ")
 
-                if s[0] == "RECVMSJ"{
+            if s[0] == "SENDMSJ"{
 
-                    slicito := s[2:]
+                //SI LLEGA ACÁ SOLO ESPERA A QUE LOS ACKS LLEGUEN
 
-                    difference_counter := 0
-                    difference_index := 0
+                sum := 0
 
-                    for indexcito, itemito := range slicito{
+                for ; (sum<len(s)-2); {
 
-                        i, _ := strconv.Atoi(string(itemito))
+                    for _, value := range *ack_list{
+                        ack := strings.Split(value, " ")
 
-                        if i > (*clock)[indexcito]{
-                            difference_counter++
-                            difference_index = indexcito
+                        if ack[1] == s[1]{
+                            sum += 1
                         }
-
                     }
 
-                    //SI SOLO HAY 1 NUMERO EN EL VECTOR QUE LLEGO QUE TENGA UN CAMBIO QUE ESTE NO TIENE
-                    if difference_counter == 1{
-                        i, _ := strconv.Atoi(string(slicito[difference_index]))
-
-                        fmt.Printf("INCREMENTANDO RELOJ SEGUN MENSAJE ID %s\n", s[1])
-                        fmt.Printf("VIEJO RELOJ: %d\n", *clock)
-                        
-                        (*clock)[difference_index] = i
-
-                        fmt.Printf("NUEVO RELOJ: %d\n", *clock)
-
-                        fmt.Printf("Popeando %s \n", (*queue)[0])
-                        //fmt.Println(queue)
-                        _, queue2 := pop(*queue)
-                        *queue = queue2
-                        fmt.Println("\n")
-
+                    if (sum == len(s)-2){
+                        break
                     }
-
-                    
-
+                    sum = 0
                 }
 
+                fmt.Printf("Han llegado todos los acks correspondientes a proceso %s \n", s[1])
+                fmt.Printf("Popeando %s\n", (*queue)[0])
+                //fmt.Println(queue)
+                _, queue2 := pop(*queue)
+                *queue = queue2
+
+                
+
+            } else if s[0] == "RECVMSJ"{
+
+                i, _ := strconv.Atoi(s[2])
+
+                if (i>*clock){
+                    *clock = i
+                    fmt.Printf("INCREMENTANDO RELOJ A : %d\n",i)
+
+                }
+                fmt.Println("INCREMENTANDO RELOJ")
+
+                *clock++;
+
+                send_ack_global(self_id, *addr_list, s[1])
+                fmt.Printf("Popeando %s \n", (*queue)[0])
+                //fmt.Println(queue)
+                _, queue2 := pop(*queue)
+                *queue = queue2
+
+            } else if s[0] == "INCREASE"{
+
+                i2, _ := strconv.Atoi(string(s[1]))
+                fmt.Printf("Self counter += :%d\n", i2) 
+                *clock += i2
+
+                _, queue2 := pop(*queue)
+                *queue = queue2
+
             }
+
+            
+
         }
     }
 
@@ -252,6 +259,7 @@ func main() {
     defer file.Close()
 
     // Atributos de cada proceso
+    var clock int
     var self_id int
 
     //PARTIDA Y TERMINO, INDICAN SI SE ESTÁN RECIBIENDO MENSAJES, Y SE USA PARA TERMINAR LA FUNCIÓN
@@ -262,8 +270,6 @@ func main() {
     var queue []string
     var ack_list []string
     var combined_list []string
-
-    var vector_clock []int
 
     addresses, err := readLines(filename1)
     if err != nil {
@@ -286,10 +292,6 @@ func main() {
 
     //NUMERO DE PUERTOS
     N := len(addresses)
-
-    for i:= 0; i< len(addresses); i++ {
-        vector_clock = append(vector_clock, 0)
-    }
     
     for index_process, line:= range addresses{
   
@@ -307,7 +309,7 @@ func main() {
                 go send_message_to_address("VAMOS", addr)
                 
             }
-            go send_messages(self_id, addresses, instructions, &queue, &combined_list, &vector_clock, true)
+            go send_messages(self_id, addresses, instructions, &queue, &combined_list, &clock, true)
 
 
         }
@@ -323,7 +325,7 @@ func main() {
         fmt.Printf("Nodo %d inicializado: \n", self_id)
         fmt.Printf("Set Address: %s \n", line)
 
-        go queue_manager(self_id, &addresses, &queue, &ack_list, &vector_clock)
+        go queue_manager(self_id, &addresses, &queue, &ack_list, &clock)
 
 		fmt.Println("Listening\n")
 		for {
@@ -341,7 +343,7 @@ func main() {
             if (stringer=="VAMOS" && !started){
                 //CUANDO LLEGA MENSAJE QUE ULTIMO RECEPTOR SE ENCUENTRA LISTO, SE INICIALIZAN SENDERS PARA TODOS LOS OTROS NODOS
                 started = true
-                go send_messages(self_id, addresses, instructions, &queue, &combined_list, &vector_clock, false)
+                go send_messages(self_id, addresses, instructions, &queue, &combined_list, &clock, false)
 
             } else{
 
@@ -350,6 +352,10 @@ func main() {
                 if stringer=="FINISH"{
                     finished = true
                     break
+                } else if s[0]== "ACK"{
+
+                    ack_list = append(ack_list, stringer)                    
+
                 } else if s[0]== "MSJ"{
 
                     stringer = "RECV"+stringer
@@ -372,16 +378,17 @@ func main() {
 
     fmt.Printf("PROCESO %d TERMINADO\n", self_id)
 
-	fmt.Printf("RELOJ VECTORIAL: %d \n", vector_clock)
+	fmt.Printf("RELOJ LOGICO: %d \n", clock)
 
     fmt.Printf("QUEUE FINAL: \n")
     output_queue := "'"+strings.Join(queue, `','`) + `'`
+
     fmt.Println(output_queue)
 
     fmt.Printf("LISTA MENSAJES ENVIADOS Y RECIBIDOS: \n")
 
     // prepend single quote, perform joins, append single quote
-    output_combined := strings.Join(combined_list, `' '`)
+    output_combined := "'"+strings.Join(combined_list, `','`) + `'`
     fmt.Println(output_combined)
     
 
